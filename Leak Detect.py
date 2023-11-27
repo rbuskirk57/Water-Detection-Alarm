@@ -1,9 +1,9 @@
 import secrets
-#import mqtt_pub_params
+import mqtt_pub_params
 import net_connect
 import socket
 from time import sleep
-#from picozero import pico_temp_sensor, pico_led, Button
+from picozero import pico_temp_sensor, pico_led, Button
 from machine import Pin, PWM
 import utime
 import machine
@@ -16,38 +16,47 @@ def reset_pico():
    wifi_led.off()
    machine.soft_reset()
    
-def open_socket(ip):
-    # Open a socket
-    address = (ip, 80)
-    connection = socket.socket()
-    connection.bind(address)
-    connection.listen(1)
-    return connection
-
-def pulse(l, t):
-    for i in range(10):
-        l.duty_u16(int(math.sin(i / 10 * math.pi) * 500 + 500))
-        utime.sleep_ms(t)
+client_id = mqtt_pub_params.client_id
+mqtt_server = mqtt_pub_params.mqtt_server
+user_t = mqtt_pub_params.user_t
+password_t = mqtt_pub_params.password_t
         
-count=0
-count_h=0
 ip = '0'
 wifi_led = Pin(27, Pin.OUT) #WiFi connected
-alarm_led = Pin(13, Pin.OUT) #leak detected RED or sensor not connected
-Sensor_1_OK_led = Pin(12, Pin.OUT) # Green if OK; Red if not
-Sensor_1 = Pin(15, Pin.IN, Pin.PULL_UP)
-Sensor_1_OK = Pin(14, Pin.IN, Pin.PULL_UP) # Sensor detected
 
-buzzer = PWM(Pin(19), freq=700)
+# Sensor 1
+alarm_led_1 = Pin(13, Pin.OUT) #Flashing RED = leak detected
+Sensor_1_OK_led = Pin(12, Pin.OUT) # Green = Armed; RED = no sensor
+#Sensor_1 = Pin(15, Pin.IN, Pin.PULL_UP) # Sensor 1 input
+btn1 = Button(15)
+Sensor_1_OK = Pin(14, Pin.IN, Pin.PULL_UP) # Sensor detected
+# Sensor 2
+alarm_led_2 = Pin(18, Pin.OUT) # Flashing RED = leak detected; Solid RED = sensor NC
+Sensor_2_OK_led = Pin(19, Pin.OUT) # Green = Armed; RED = no sensor
+#Sensor_2 = Pin(16, Pin.IN, Pin.PULL_UP) # Sensor 2 input
+btn2 = Button(16)
+Sensor_2_OK = Pin(17, Pin.IN, Pin.PULL_UP) # Sensor detected
+
+buzzer = PWM(Pin(21), freq=700)
+
 wifi_led.off()
 
-#pulse(buzzer, 10)
+# Temp Sensor
 sensor_temp = machine.ADC(4)
 conversion_factor = 3.3 / (65535)
 
+alarm_led_1.off() # RED ON
+Sensor_1_OK_led.on() # GREEN OFF
+alarm_led_2.off() # RED ON
+Sensor_2_OK_led.on() # GREEN OFF
+buzzer.duty_ns(30000)
+utime.sleep(1)
+buzzer.duty_u16(0) # turn off the buzzer
+S1 = "OK"
+S2 = "OK"
+
 ip = net_connect.connect(secrets.SSID, secrets.PASSWORD)
 if ip != "-1":
-    print("connected on :" + ip)
     wifi_led.on()
 else:
     reset_pico()
@@ -56,23 +65,52 @@ while True:
     #print("OK: " + str(Sensor_1_OK.value()))
     if Sensor_1_OK.value():
         #Leak detected
-        if not Sensor_1.value():
-            alarm_led.toggle()
+        #if not Sensor_1.value():
+        if btn1.is_pressed:
+            alarm_led_1.toggle()
             Sensor_1_OK_led.on() # GREEN OFF
-            #pulse(buzzer, 25)
-            buzzer.duty_u16(32768) 
+            #buzzer.duty_u16(32768) # 50% duty cycle
+            buzzer.duty_ns(30000)
+            S1 = "ALARM_WATER_DETECTED"
         else: # No Leak Sensor Detected
             Sensor_1_OK_led.off() # GREEN
-            alarm_led.on()
+            alarm_led_1.on()
             buzzer.duty_u16(0)
+            S1 = "NO_WATER_DETECTED"
     else:
         # No Sensor Detected
-        alarm_led.off() # RED ON
+        alarm_led_1.off() # RED ON
         Sensor_1_OK_led.on() # GREEN OFF
         buzzer.duty_u16(0) # turn off the buzzer
+        S1 = "NO_SENSOR"
+
+    if Sensor_2_OK.value():
+        #Leak detected
+        #if not Sensor_2.value():
+        if btn2.is_pressed:
+            alarm_led_2.toggle()
+            Sensor_2_OK_led.on() # GREEN OFF
+            #buzzer.duty_u16(32768)
+            buzzer.duty_ns(30000)
+            #print("alarm 2: " + str(Sensor_2.value()))
+            S2 = "ALARM_WATER_DETECTED"
+        else: # No Leak Sensor Detected
+            Sensor_2_OK_led.off() # GREEN
+            alarm_led_2.on()
+            buzzer.duty_u16(0)
+            S2 = "NO_WATER_DETECTED"
+    else:
+        # No Sensor Detected
+        alarm_led_2.off() # RED ON
+        Sensor_2_OK_led.on() # GREEN OFF
+        S2 = "NO_SENSOR"
             
+
     reading = sensor_temp.read_u16() * conversion_factor 
     temperature_c = 27 - (reading - 0.706)/0.001721
     fahrenheit_degrees = temperature_c * (9 / 5) + 32
     Temp_F = "Pico Temperature: " + str(round(fahrenheit_degrees,2)) + " *F"
-    utime.sleep(1)
+    utime.sleep(.5)
+    
+
+
