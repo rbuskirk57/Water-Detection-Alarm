@@ -9,11 +9,6 @@ import machine
 from umqttsimple import MQTTClient
 import math
 
-def mqtt_serve(door):
-    client = mqtt_connect()
-    client.publish(mqtt_pub_params.topic_pub, msg=home)
-    utime.sleep(3)
-        
 def mqtt_connect():
     client = MQTTClient(client_id, mqtt_server, user=user_t, password=password_t, keepalive=30)
     client.connect()
@@ -25,6 +20,10 @@ def reset_pico():
    bummer_tone()
    wifi_led.off()
    machine.soft_reset()
+   
+def mqtt_lost():
+    bummer_tone()
+    wifi_led.off()
    
 def powerup_tone():
     buzzer.duty_ns(30000)
@@ -40,8 +39,16 @@ def bummer_tone():
     buzzer.duty_ns(30000)
     buzzer.freq(1300)
     utime.sleep(.5)
-    buzzer.freq(1100)
+    buzzer.freq(950)
     utime.sleep(.5)
+    buzzer.duty_u16(0)
+    
+def wifi_ok_tone():
+    buzzer.duty_ns(30000)
+    buzzer.freq(1000)
+    utime.sleep(.1)
+    buzzer.freq(2400)
+    utime.sleep(.1)
     buzzer.duty_u16(0)
    
 client_id = mqtt_pub_params.client_id
@@ -80,28 +87,30 @@ Sensor_2_OK_led.on() # GREEN OFF
 powerup_tone()
 S1 = "OK"
 S2 = "OK"
+ip_ok = 0
 
 ip = net_connect.connect(secrets.SSID, secrets.PASSWORD)
 if ip != "-1":
     wifi_led.on()
-else:
-    reset_pico()
+    ip_ok = 1
+    wifi_ok_tone()
 
 while True:
-    try:
-        client = mqtt_connect()
-    except OSError as e:
-        reset_pico()
+    print("ip_ok: " + str(ip_ok))
+    if ip_ok:
+        try:
+            client = mqtt_connect()
+        except OSError as e:
+            reset_pico()
 
     while True:
-        #print("OK: " + str(Sensor_1_OK.value()))
         if Sensor_1_OK.value():
             #Leak detected
-            #if not Sensor_1.value():
             if btn1.is_pressed:
                 alarm_led_1.toggle()
                 Sensor_1_OK_led.on() # GREEN OFF
                 #buzzer.duty_u16(32768) # 50% duty cycle
+                buzzer.freq(1000)
                 buzzer.duty_ns(30000)
                 S1 = "ALARM_WATER_DETECTED_S1"
             else: # No Leak Sensor Detected
@@ -118,13 +127,12 @@ while True:
 
         if Sensor_2_OK.value():
             #Leak detected
-            #if not Sensor_2.value():
             if btn2.is_pressed:
                 alarm_led_2.toggle()
                 Sensor_2_OK_led.on() # GREEN OFF
                 #buzzer.duty_u16(32768)
+                buzzer.freq(1000)
                 buzzer.duty_ns(30000)
-                #print("alarm 2: " + str(Sensor_2.value()))
                 S2 = "ALARM_WATER_DETECTED_S2"
             else: # No Leak Sensor Detected
                 Sensor_2_OK_led.off() # GREEN
@@ -136,21 +144,24 @@ while True:
             alarm_led_2.off() # RED ON
             Sensor_2_OK_led.on() # GREEN OFF
             S2 = "S2_NO_SENSOR"
-                
 
+        utime.sleep(1)
         reading = sensor_temp.read_u16() * conversion_factor 
         temperature_c = 27 - (reading - 0.706)/0.001721
         fahrenheit_degrees = temperature_c * (9 / 5) + 32
         Temp_F = "Pico Temperature: " + str(round(fahrenheit_degrees,2)) + " *F"
         
-        try:
-            client.publish(mqtt_pub_params.topic_pub, msg=S1)
-            client.publish(mqtt_pub_params.topic_pub, msg=S2)
-            client.publish(mqtt_pub_params.topic_pub, msg=Temp_F)
-            utime.sleep(1)
-        except:
-            print("Client publish failed, executing a machine reset!")
-            reset_pico()
-            pass
+        if ip_ok:
+            try:
+                client.publish(mqtt_pub_params.topic_pub, msg=S1)
+                client.publish(mqtt_pub_params.topic_pub, msg=S2)
+                client.publish(mqtt_pub_params.topic_pub, msg=Temp_F)
+            except:
+                #print("Client publish failed, executing a machine reset!")
+                print("Client publish failed!")
+                #reset_pico()
+                mqtt_lost()
+                ip_ok = 0
+                pass
     print("client disconnect")
     client.disconnect()
