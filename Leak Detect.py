@@ -2,7 +2,6 @@ import secrets
 import mqtt_pub_params
 import net_connect
 import socket
-from time import sleep
 from picozero import pico_temp_sensor, pico_led, Button
 from machine import Pin, PWM
 import utime
@@ -23,9 +22,27 @@ def mqtt_connect():
 
 def reset_pico():
    print('Bailing out with a machine soft reset...')
-   time.sleep(1)
+   bummer_tone()
    wifi_led.off()
    machine.soft_reset()
+   
+def powerup_tone():
+    buzzer.duty_ns(30000)
+    buzzer.freq(1000)
+    utime.sleep(.1)
+    buzzer.freq(1400)
+    utime.sleep(.1)
+    buzzer.freq(1750)
+    utime.sleep(.2)
+    buzzer.duty_u16(0)
+    
+def bummer_tone():
+    buzzer.duty_ns(30000)
+    buzzer.freq(1300)
+    utime.sleep(.5)
+    buzzer.freq(1100)
+    utime.sleep(.5)
+    buzzer.duty_u16(0)
    
 client_id = mqtt_pub_params.client_id
 mqtt_server = mqtt_pub_params.mqtt_server
@@ -60,9 +77,7 @@ alarm_led_1.off() # RED ON
 Sensor_1_OK_led.on() # GREEN OFF
 alarm_led_2.off() # RED ON
 Sensor_2_OK_led.on() # GREEN OFF
-buzzer.duty_ns(30000)
-utime.sleep(1)
-buzzer.duty_u16(0) # turn off the buzzer
+powerup_tone()
 S1 = "OK"
 S2 = "OK"
 
@@ -93,13 +108,13 @@ while True:
                 Sensor_1_OK_led.off() # GREEN
                 alarm_led_1.on()
                 buzzer.duty_u16(0)
-                S1 = "NO_WATER_DETECTED_S1"
+                S1 = "S1_READY"
         else:
             # No Sensor Detected
             alarm_led_1.off() # RED ON
             Sensor_1_OK_led.on() # GREEN OFF
             buzzer.duty_u16(0) # turn off the buzzer
-            S1 = "NO_SENSOR_S1"
+            S1 = "S1_NO_SENSOR"
 
         if Sensor_2_OK.value():
             #Leak detected
@@ -115,19 +130,18 @@ while True:
                 Sensor_2_OK_led.off() # GREEN
                 alarm_led_2.on()
                 buzzer.duty_u16(0)
-                S2 = "NO_WATER_DETECTED_S2"
+                S2 = "S2_READY"
         else:
             # No Sensor Detected
             alarm_led_2.off() # RED ON
             Sensor_2_OK_led.on() # GREEN OFF
-            S2 = "NO_SENSOR_S2"
+            S2 = "S2_NO_SENSOR"
                 
 
         reading = sensor_temp.read_u16() * conversion_factor 
         temperature_c = 27 - (reading - 0.706)/0.001721
         fahrenheit_degrees = temperature_c * (9 / 5) + 32
         Temp_F = "Pico Temperature: " + str(round(fahrenheit_degrees,2)) + " *F"
-        #utime.sleep(.5)
         
         try:
             client.publish(mqtt_pub_params.topic_pub, msg=S1)
@@ -135,7 +149,7 @@ while True:
             client.publish(mqtt_pub_params.topic_pub, msg=Temp_F)
             utime.sleep(1)
         except:
-            print("Client publish failed, executing a machine reset")
+            print("Client publish failed, executing a machine reset!")
             reset_pico()
             pass
     print("client disconnect")
