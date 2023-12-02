@@ -144,6 +144,7 @@ while True:
             alarm_led_2.off() # RED ON
             Sensor_2_OK_led.on() # GREEN OFF
             S2 = "S2_NO_SENSOR"
+                
 
         utime.sleep(1)
         reading = sensor_temp.read_u16() * conversion_factor 
@@ -163,5 +164,7 @@ while True:
                 mqtt_lost()
                 ip_ok = 0
                 pass
+        else:
+            wifi_led.toggle()
     print("client disconnect")
     client.disconnect()
