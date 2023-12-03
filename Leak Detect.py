@@ -116,18 +116,18 @@ while True:
                 #buzzer.duty_u16(32768) # 50% duty cycle
                 buzzer.freq(1000)
                 buzzer.duty_ns(30000)
-                S1 = "ALARM_WATER_DETECTED_S1"
+                S1 = client_id + "_S1_LEAK_DETECTED"
             else: # No Leak Sensor Detected
                 Sensor_1_OK_led.off() # GREEN
                 alarm_led_1.on()
                 buzzer.duty_u16(0)
-                S1 = "S1_READY"
+                S1 = client_id + "_S1_READY"
         else:
             # No Sensor Detected
             alarm_led_1.off() # RED ON
             Sensor_1_OK_led.on() # GREEN OFF
             buzzer.duty_u16(0) # turn off the buzzer
-            S1 = "S1_NO_SENSOR"
+            S1 = client_id + "_S1_NO_SENSOR"
 
         if Sensor_2_OK.value():
             #Leak detected
@@ -137,24 +137,24 @@ while True:
                 #buzzer.duty_u16(32768)
                 buzzer.freq(1000)
                 buzzer.duty_ns(30000)
-                S2 = "ALARM_WATER_DETECTED_S2"
+                S2 = client_id + "_S2_LEAK_DETECTED"
             else: # No Leak Sensor Detected
                 Sensor_2_OK_led.off() # GREEN
                 alarm_led_2.on()
                 buzzer.duty_u16(0)
-                S2 = "S2_READY"
+                S2 = client_id + "_S2_READY"
         else:
             # No Sensor Detected
             alarm_led_2.off() # RED ON
             Sensor_2_OK_led.on() # GREEN OFF
-            S2 = "S2_NO_SENSOR"
+            S2 = client_id + "_S2_NO_SENSOR"
                 
 
         utime.sleep(1)
         reading = sensor_temp.read_u16() * conversion_factor 
         temperature_c = 27 - (reading - 0.706)/0.001721
         fahrenheit_degrees = temperature_c * (9 / 5) + 32
-        Temp_F = "Pico Temperature: " + str(round(fahrenheit_degrees,2)) + " *F"
+        Temp_F = client_id + " Temperature: " + str(round(fahrenheit_degrees,2)) + " *F"
         
         if ip_ok:
             try:
