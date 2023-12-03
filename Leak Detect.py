@@ -2,7 +2,7 @@ import secrets
 import mqtt_pub_params
 import net_connect
 import socket
-from picozero import pico_temp_sensor, pico_led, Button
+from picozero import Button
 from machine import Pin, PWM
 import utime
 import machine
@@ -50,6 +50,14 @@ def wifi_ok_tone():
     buzzer.freq(2400)
     utime.sleep(.1)
     buzzer.duty_u16(0)
+    
+def wifi_connect(max_count):
+    ip = net_connect.connect(secrets.SSID, secrets.PASSWORD, max_count)
+    if ip != "-1":
+        wifi_led.on()
+        ip_ok = 1
+        wifi_ok_tone()
+    return ip_ok
    
 client_id = mqtt_pub_params.client_id
 mqtt_server = mqtt_pub_params.mqtt_server
@@ -62,13 +70,11 @@ wifi_led = Pin(27, Pin.OUT) #WiFi connected
 # Sensor 1
 alarm_led_1 = Pin(13, Pin.OUT) #Flashing RED = leak detected
 Sensor_1_OK_led = Pin(12, Pin.OUT) # Green = Armed; RED = no sensor
-#Sensor_1 = Pin(15, Pin.IN, Pin.PULL_UP) # Sensor 1 input
 btn1 = Button(15)
 Sensor_1_OK = Pin(14, Pin.IN, Pin.PULL_UP) # Sensor detected
 # Sensor 2
 alarm_led_2 = Pin(18, Pin.OUT) # Flashing RED = leak detected; Solid RED = sensor NC
 Sensor_2_OK_led = Pin(19, Pin.OUT) # Green = Armed; RED = no sensor
-#Sensor_2 = Pin(16, Pin.IN, Pin.PULL_UP) # Sensor 2 input
 btn2 = Button(16)
 Sensor_2_OK = Pin(17, Pin.IN, Pin.PULL_UP) # Sensor detected
 
@@ -88,12 +94,10 @@ powerup_tone()
 S1 = "OK"
 S2 = "OK"
 ip_ok = 0
+retry_count = 0
+retry_delay = 20
 
-ip = net_connect.connect(secrets.SSID, secrets.PASSWORD)
-if ip != "-1":
-    wifi_led.on()
-    ip_ok = 1
-    wifi_ok_tone()
+ip_ok = wifi_connect(20)
 
 while True:
     print("ip_ok: " + str(ip_ok))
@@ -158,13 +162,22 @@ while True:
                 client.publish(mqtt_pub_params.topic_pub, msg=S2)
                 client.publish(mqtt_pub_params.topic_pub, msg=Temp_F)
             except:
-                #print("Client publish failed, executing a machine reset!")
                 print("Client publish failed!")
-                #reset_pico()
                 mqtt_lost()
                 ip_ok = 0
                 pass
         else:
             wifi_led.toggle()
+            if retry_count >= retry_delay:
+                ip_ok = wifi_connect(10)
+                if ip_ok:
+                    try:
+                        client = mqtt_connect()
+                    except:
+                        print("Retry mqtt_connect failed")
+                    retry_count = 0
+            else:
+                retry_count += 1
+            
     print("client disconnect")
     client.disconnect()
