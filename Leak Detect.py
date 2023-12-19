@@ -1,174 +1,221 @@
-import secrets
-import mqtt_pub_params
+ # Display Image & text on I2C driven SH1106 OLED display 
+from machine import I2C, ADC
+from sh1106 import SH1106_I2C
+import framebuf
+import time
+from machine import Pin, I2C
+import utime as time
+from dht import DHT11, InvalidChecksum
 import net_connect
-import socket
-from picozero import Button
-from machine import Pin, PWM
-import utime
-import machine
+import secrets
 from umqttsimple import MQTTClient
-import math
+import mqtt_params
+import utime
+#from picozero import pico_led
+#import socket
 
 def mqtt_connect():
     client = MQTTClient(client_id, mqtt_server, user=user_t, password=password_t, keepalive=30)
     client.connect()
     print('Connected to %s MQTT Broker'%(mqtt_server))
     return client
+# This code is executed once a new message is published
+def new_message_callback(topic, msg):
+    topic , msg=topic.decode('ascii') , msg.decode('ascii')
+    #print("Topic: "+topic+" | Message: "+msg)
+    #print(msg)
+    if "S1" in msg:
+        #print("callback: " + msg)
+        clear_file("S1.txt")
+        f = open("S1.txt", 'w')
+        f.write(msg)
+        f.close
+    elif "S2" in msg:
+        clear_file("S2.txt")
+        f = open("S2.txt", 'w')
+        f.write(msg)
+        f.close
+    elif "192" in msg:
+        clear_file("ip.txt")
+        f = open("ip.txt", 'w')
+        f.write(msg)
+        f.close
+    elif "Temperature" in msg:
+        clear_file("temp.txt")
+        f = open("temp.txt", 'w')
+        f.write(msg)
+        f.close
+    else:
+        print("Just a heads-up ... msg in callback didn't match: " + msg)
+
+def wrt_sysok(status):
+    f = open("sysok.txt", "w")
+    f.write(status)
+    f.close()
 
 def reset_pico():
-   print('Bailing out with a machine soft reset...')
-   bummer_tone()
-   wifi_led.off()
+   print('Bailing out with a soft reset...')
+   time.sleep(1)
+   #machine.reset()
+   led.off()
    machine.soft_reset()
    
-def mqtt_lost():
-    bummer_tone()
-    wifi_led.off()
-   
-def powerup_tone():
-    buzzer.duty_ns(30000)
-    buzzer.freq(1000)
-    utime.sleep(.1)
-    buzzer.freq(1400)
-    utime.sleep(.1)
-    buzzer.freq(1750)
-    utime.sleep(.2)
-    buzzer.duty_u16(0)
+def row_count(row):
+    if row == 45:
+        row = 5
+    else:
+        row += 10
+    return row
+
+def clear_file(file):
+    f = open(file, 'w')
+    f.write(" ")
+    f.close
     
-def bummer_tone():
-    buzzer.duty_ns(30000)
-    buzzer.freq(1300)
-    utime.sleep(.5)
-    buzzer.freq(950)
-    utime.sleep(.5)
-    buzzer.duty_u16(0)
-    
-def wifi_ok_tone():
-    buzzer.duty_ns(30000)
-    buzzer.freq(1000)
-    utime.sleep(.1)
-    buzzer.freq(2400)
-    utime.sleep(.1)
-    buzzer.duty_u16(0)
-    
-def wifi_connect(max_count):
-    ip = net_connect.connect(secrets.SSID, secrets.PASSWORD, max_count)
-    if ip != "-1":
-        wifi_led.on()
-        ip_ok = 1
-        wifi_ok_tone()
-    return ip_ok, ip
-   
-client_id = mqtt_pub_params.client_id
-mqtt_server = mqtt_pub_params.mqtt_server
-user_t = mqtt_pub_params.user_t
-password_t = mqtt_pub_params.password_t
-        
+def refresh_screen(pub_lst,row):
+    oled.text(pub_lst[0],5,row[0])
+    oled.text(pub_lst[1],5,row[1]) #15 (+10)
+    oled.text(pub_lst[2],5,row[2]) #25 (+20)
+    oled.text(pub_lst[3],5,row[3])
+    oled.text(pub_lst[4],5,row[4])
+    oled.show()
+
+def read_sensor():
+    tc=0
+    h=0
+    t=0
+    try:
+        tc  = (sensor.temperature)
+    except:
+        time.sleep(1)
+        try:
+            tc  = (sensor.temperature)
+        except:
+            print("temp read error")
+            #reset_pico()
+            pass
+        #pass
+
+    t = tc * (9/5) + 32
+
+    try:
+        h = (sensor.humidity)
+    except:
+        time.sleep(1)
+        try:
+            h = (sensor.humidity)
+        except:
+            print("Humidity read error")
+            pass
+
+    return t,h
+
+
+WIDTH  = 128                                            # oled display width
+HEIGHT = 64                                             # oled display height
+
+i2c = I2C(0)                                            # Init I2C using I2C0 defaults, SCL=Pin(GP9), SDA=Pin(GP8), freq=400000
+print("I2C Address      : "+hex(i2c.scan()[0]).upper()) # Display device address
+print("I2C Configuration: "+str(i2c))                   # Display I2C config
+
+oled = SH1106_I2C(WIDTH, HEIGHT, i2c)                  # Init oled display
+oled.rotate(True)
+tc=0
+t=0
+h=0
+
+count=0
+count_h=0
 ip = '0'
-wifi_led = Pin(27, Pin.OUT) #WiFi connected
+led = Pin(27, Pin.OUT) #WiFi connected
+led.off()
 
-# Sensor 1
-alarm_led_1 = Pin(13, Pin.OUT) #Flashing RED = leak detected
-Sensor_1_OK_led = Pin(12, Pin.OUT) # Green = Armed; RED = no sensor
-btn1 = Button(15)
-Sensor_1_OK = Pin(14, Pin.IN, Pin.PULL_UP) # Sensor detected
-# Sensor 2
-alarm_led_2 = Pin(18, Pin.OUT) # Flashing RED = leak detected; Solid RED = sensor NC
-Sensor_2_OK_led = Pin(19, Pin.OUT) # Green = Armed; RED = no sensor
-btn2 = Button(16)
-Sensor_2_OK = Pin(17, Pin.IN, Pin.PULL_UP) # Sensor detected
 
-buzzer = PWM(Pin(21), freq=700)
+#MQTT Setup
+client_id = mqtt_params.client_id
+mqtt_server = mqtt_params.mqtt_server
+user_t = mqtt_params.user_t
+password_t = mqtt_params.password_t
+topic_pub = mqtt_params.topic_pub
 
-wifi_led.off()
+ip = net_connect.connect(secrets.SSID, secrets.PASSWORD,20)
+if ip != "-1":
+    #print("connected on: " + ip)
+    led.on()
+#     connection = open_socket(ip)
+else:
+    reset_pico()
 
-# Temp Sensor
-sensor_temp = machine.ADC(4)
-conversion_factor = 3.3 / (65535)
+# the following will set the seconds between 2 keep alive messages
+keep_alive=30
 
-alarm_led_1.off() # RED ON
-Sensor_1_OK_led.on() # GREEN OFF
-alarm_led_2.off() # RED ON
-Sensor_2_OK_led.on() # GREEN OFF
-powerup_tone()
-S1 = "OK"
-S2 = "OK"
-ip_ok = 0
-retry_count = 0
-retry_delay = 20
+try:
+    client = mqtt_connect()
+    client.set_callback(new_message_callback)
+    client.subscribe(topic_pub.encode('utf-8'))
+except OSError as e:
+    reset_pico()
+
+last_message=utime.time()
+
+mssg = client.check_msg()
+
+pub_lst = ["0","1","2","3","4"]
+row = [5,15,25,35,45]
 
 while True:
-    if Sensor_1_OK.value():
-        #Leak detected
-        if btn1.is_pressed:
-            alarm_led_1.toggle()
-            Sensor_1_OK_led.on() # GREEN OFF
-            buzzer.duty_u16(32768) # 50% duty cycle
-            buzzer.freq(1000)
-            #buzzer.duty_ns(30000)
-            S1 = client_id + "_S1_LEAK_DETECTED"
-        else: # No Leak Sensor Detected
-            Sensor_1_OK_led.off() # GREEN
-            alarm_led_1.on()
-            if btn2.is_released:
-                buzzer.duty_u16(0)
-            S1 = client_id + "_S1_READY"
-    else:
-        # No Sensor Detected
-        alarm_led_1.off() # RED ON
-        Sensor_1_OK_led.on() # GREEN OFF
-        S1 = client_id + "_S1_NO_SENSOR"
-
-    if Sensor_2_OK.value():
-        #Leak detected
-        if btn2.is_pressed:
-            alarm_led_2.toggle()
-            Sensor_2_OK_led.on() # GREEN OFF
-            buzzer.duty_u16(32768)
-            buzzer.freq(700)
-            #buzzer.duty_ns(30000)
-            S2 = client_id + "_S2_LEAK_DETECTED"
-        else: # No Leak Sensor Detected
-            Sensor_2_OK_led.off() # GREEN
-            alarm_led_2.on()
-            if btn1.is_released:
-                buzzer.duty_u16(0)
-            S2 = client_id + "_S2_READY"
-    else:
-        # No Sensor Detected
-        Sensor_2_OK_led.on() # GREEN OFF
-        S2 = client_id + "_S2_NO_SENSOR"
- 
-    utime.sleep(1)
-    reading = sensor_temp.read_u16() * conversion_factor 
-    temperature_c = 27 - (reading - 0.706)/0.001721
-    fahrenheit_degrees = temperature_c * (9 / 5) + 32
-    Temp_F = client_id + " Temperature: " + str(round(fahrenheit_degrees,2)) + " *F"
-    
-    if ip_ok:
-        try:
-            client.publish(mqtt_pub_params.topic_pub, msg=S1)
-            client.publish(mqtt_pub_params.topic_pub, msg=S2)
-            client.publish(mqtt_pub_params.topic_pub, msg=Temp_F)
-            client.publish(mqtt_pub_params.topic_pub, msg=client_id + ": " +ip)
-        except:
-            print("Client publish failed!")
-            mqtt_lost()
-            ip_ok = 0
-            pass
-    else:
-        if retry_count <= retry_delay:
-            ip_ok, ip = wifi_connect(10)
-            if ip_ok:
-                wifi_led.on()
-                try:
-                    client = mqtt_connect()
-                except:
-                    print("Retry mqtt_connect failed")
-                retry_count = 0
-        else:
-            wifi_led.toggle()
-            retry_count += 1
+    try:
+        f = open("S1.txt")
+        pub_msg = f.read()
+        f.close()
+        pub_lst.append(pub_msg)
+        pub_lst.pop(0)
         
-print("client disconnect")
+        f = open("S2.txt")
+        pub_msg = f.read()
+        f.close()
+        pub_lst.append(pub_msg)
+        pub_lst.pop(0)
+        
+        f = open("temp.txt")
+        pub_msg = f.read()
+        f.close()
+        pub_lst.append(pub_msg)
+        pub_lst.pop(0)
+
+        oled.fill(0)
+        #time.sleep(1)
+        #pin = Pin(28, Pin.OUT, Pin.PULL_DOWN)
+        #pin = Pin(28, Pin.IN)
+        #sensor = DHT11(pin)
+
+        if count > 4:
+            count = 0
+        else:
+            count += 1
+
+        oled.text(pub_lst[0],5,row[0])
+        oled.text(pub_lst[1],5,row[1]) #15 (+10)
+        oled.text(pub_lst[2],5,row[2]) #25 (+20)
+        oled.text(pub_lst[3],5,row[3])
+        oled.text(pub_lst[4],5,row[4])
+        oled.show()
+        
+        row[0] = row_count(row[0])
+        row[1] = row_count(row[1])
+        row[2] = row_count(row[2])
+        row[3] = row_count(row[3])
+        row[4] = row_count(row[4])
+
+        client.check_msg()
+        utime.sleep(0.1)
+        if (utime.time() - last_message) > keep_alive:
+            client.publish(topic_pub, "Keep alive message")
+            last_message = utime.time()
+        
+    except OSError as e:
+        print(e)
+        reset_pico()
+        pass
+
 client.disconnect()
