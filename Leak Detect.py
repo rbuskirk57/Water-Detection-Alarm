@@ -58,7 +58,8 @@ def wifi_connect(max_count):
         ip_ok = 1
         wifi_ok_tone()
     return ip_ok, ip
-   
+
+# Mqtt Client
 client_id = mqtt_pub_params.client_id
 mqtt_server = mqtt_pub_params.mqtt_server
 user_t = mqtt_pub_params.user_t
@@ -80,7 +81,14 @@ Sensor_2_OK = Pin(17, Pin.IN, Pin.PULL_UP) # Sensor detected
 
 buzzer = PWM(Pin(21), freq=700)
 
-wifi_led.off()
+ip = net_connect.connect(secrets.SSID, secrets.PASSWORD, 10)
+print(ip)
+if ip != "-1":
+    wifi_led.on()
+else:
+    wifi_led.off()
+    reset_pico()
+
 
 # Temp Sensor
 sensor_temp = machine.ADC(4)
@@ -98,78 +106,72 @@ retry_count = 0
 retry_delay = 20
 
 while True:
-    if Sensor_1_OK.value():
-        #Leak detected
-        if btn1.is_pressed:
-            alarm_led_1.toggle()
-            Sensor_1_OK_led.on() # GREEN OFF
-            buzzer.duty_u16(32768) # 50% duty cycle
-            buzzer.freq(1000)
-            #buzzer.duty_ns(30000)
-            S1 = client_id + "_S1_LEAK_DETECTED"
-        else: # No Leak Sensor Detected
-            Sensor_1_OK_led.off() # GREEN
-            alarm_led_1.on()
-            if btn2.is_released:
-                buzzer.duty_u16(0)
-            S1 = client_id + "_S1_READY"
-    else:
-        # No Sensor Detected
-        alarm_led_1.off() # RED ON
-        Sensor_1_OK_led.on() # GREEN OFF
-        S1 = client_id + "_S1_NO_SENSOR"
-
-    if Sensor_2_OK.value():
-        #Leak detected
-        if btn2.is_pressed:
-            alarm_led_2.toggle()
-            Sensor_2_OK_led.on() # GREEN OFF
-            buzzer.duty_u16(32768)
-            buzzer.freq(700)
-            #buzzer.duty_ns(30000)
-            S2 = client_id + "_S2_LEAK_DETECTED"
-        else: # No Leak Sensor Detected
-            Sensor_2_OK_led.off() # GREEN
-            alarm_led_2.on()
-            if btn1.is_released:
-                buzzer.duty_u16(0)
-            S2 = client_id + "_S2_READY"
-    else:
-        # No Sensor Detected
-        alarm_led_2.off() # RED ON
-        Sensor_2_OK_led.on() # GREEN OFF
-        S2 = client_id + "_S2_NO_SENSOR"
- 
-    utime.sleep(1)
-    reading = sensor_temp.read_u16() * conversion_factor 
-    temperature_c = 27 - (reading - 0.706)/0.001721
-    fahrenheit_degrees = temperature_c * (9 / 5) + 32
-    Temp_F = client_id + " Temperature: " + str(round(fahrenheit_degrees,2)) + " *F"
+    try:
+        client = mqtt_connect()
+    except OSError as e:
+        print("MQTT Connect failed!")
+        reset_pico()
     
-    if ip_ok:
+    while True:
+        if Sensor_1_OK.value():
+            #Leak detected
+            if btn1.is_pressed:
+                alarm_led_1.toggle()
+                Sensor_1_OK_led.on() # GREEN OFF
+                buzzer.duty_u16(32768) # 50% duty cycle
+                buzzer.freq(1000)
+                #buzzer.duty_ns(30000)
+                S1 = client_id + "_S1_LEAK_DETECTED"
+            else: # No Leak Sensor Detected
+                Sensor_1_OK_led.off() # GREEN
+                alarm_led_1.on()
+                if btn2.is_released:
+                    buzzer.duty_u16(0)
+                S1 = client_id + "_S1_READY"
+        else:
+            # No Sensor Detected
+            alarm_led_1.off() # RED ON
+            Sensor_1_OK_led.on() # GREEN OFF
+            S1 = client_id + "_S1_NO_SENSOR"
+
+        if Sensor_2_OK.value():
+            #Leak detected
+            if btn2.is_pressed:
+                alarm_led_2.toggle()
+                Sensor_2_OK_led.on() # GREEN OFF
+                buzzer.duty_u16(32768)
+                buzzer.freq(700)
+                #buzzer.duty_ns(30000)
+                S2 = client_id + "_S2_LEAK_DETECTED"
+            else: # No Leak Sensor Detected
+                Sensor_2_OK_led.off() # GREEN
+                alarm_led_2.on()
+                if btn1.is_released:
+                    buzzer.duty_u16(0)
+                S2 = client_id + "_S2_READY"
+        else:
+            # No Sensor Detected
+            alarm_led_2.off() # RED ON
+            Sensor_2_OK_led.on() # GREEN OFF
+            S2 = client_id + "_S2_NO_SENSOR"
+     
+        utime.sleep(1)
+        reading = sensor_temp.read_u16() * conversion_factor 
+        temperature_c = 27 - (reading - 0.706)/0.001721
+        fahrenheit_degrees = temperature_c * (9 / 5) + 32
+        Temp_F = client_id + " Temperature: " + str(round(fahrenheit_degrees,2)) + " *F"
+        
         try:
             client.publish(mqtt_pub_params.topic_pub, msg=S1)
             client.publish(mqtt_pub_params.topic_pub, msg=S2)
             client.publish(mqtt_pub_params.topic_pub, msg=Temp_F)
             client.publish(mqtt_pub_params.topic_pub, msg=client_id + ": " +ip)
         except:
-            print("Client publish failed!")
-            mqtt_lost()
-            ip_ok = 0
+            print("Client publish failed, executing a machine reset")
+            client = mqtt_connect()
+            #reset_pico()
             pass
-    else:
-        if retry_count <= retry_delay:
-            ip_ok, ip = wifi_connect(10)
-            if ip_ok:
-                wifi_led.on()
-                try:
-                    client = mqtt_connect()
-                except:
-                    print("Retry mqtt_connect failed")
-                retry_count = 0
-        else:
-            wifi_led.toggle()
-            retry_count += 1
         
 print("client disconnect")
 client.disconnect()
+
